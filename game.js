@@ -5,18 +5,15 @@ const GAME_STATES = {
     GAME_OVER: 'gameOver'
 };
 
-const GROUND_COLOR = '#8B7355';
-const GROUND_HEIGHT = 60;
-const PLAYER_WIDTH = 30;
-const PLAYER_HEIGHT = 40;
-const OBSTACLE_WIDTH = 25;
+const NUM_LANES = 3;
+const PLAYER_WIDTH = 40;
+const PLAYER_HEIGHT = 50;
+const OBSTACLE_WIDTH = 50;
 const OBSTACLE_HEIGHT = 50;
-const GRAVITY = 0.6;
-const JUMP_STRENGTH = -12;
-const MAX_FALL_SPEED = 15;
-const INITIAL_OBSTACLE_SPEED = 6;
-const MIN_SPAWN_INTERVAL = 1.2;
-const MAX_SPAWN_INTERVAL = 2.5;
+const INITIAL_SCROLL_SPEED = 6;
+const MIN_SPAWN_INTERVAL = 0.8;
+const MAX_SPAWN_INTERVAL = 1.8;
+const LANE_SWITCH_SPEED = 15;
 
 // Game object
 const game = {
@@ -27,28 +24,33 @@ const game = {
     bestScore: localStorage.getItem('bestScore') || 0,
     gameTime: 0,
     
+    // Lane system
+    laneWidth: 0,
+    lanes: [],
+    
     // Player
     player: {
+        currentLane: 1, // 0 = left, 1 = center, 2 = right
+        targetLane: 1,
         x: 0,
         y: 0,
         width: PLAYER_WIDTH,
         height: PLAYER_HEIGHT,
-        velocityY: 0,
-        isJumping: false,
-        canDoubleJump: false,
+        velocityX: 0,
         color: '#FF6B6B'
     },
     
     // Game mechanics
     obstacles: [],
-    obstacleSpeed: INITIAL_OBSTACLE_SPEED,
+    scrollSpeed: INITIAL_SCROLL_SPEED,
     lastObstacleSpawn: 0,
     spawnInterval: MAX_SPAWN_INTERVAL,
+    scrollOffset: 0,
     
     // Touch handling
-    lastTouchTime: 0,
     touchStartX: 0,
     touchStartY: 0,
+    swipeThreshold: 50,
     
     // Difficulty scaling
     difficulty: 1
@@ -63,9 +65,12 @@ function init() {
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
     
+    // Calculate lane positions
+    calculateLanes();
+    
     // Initialize player position
-    game.player.x = game.canvas.width * 0.15;
-    game.player.y = game.canvas.height - GROUND_HEIGHT - game.player.height;
+    game.player.y = game.canvas.height * 0.75;
+    game.player.x = game.lanes[game.player.currentLane];
     
     // Set up UI
     updateBestScoreDisplay();
@@ -73,6 +78,14 @@ function init() {
     
     // Start game loop
     gameLoop();
+}
+
+function calculateLanes() {
+    game.laneWidth = game.canvas.width / NUM_LANES;
+    game.lanes = [];
+    for (let i = 0; i < NUM_LANES; i++) {
+        game.lanes.push(i * game.laneWidth + game.laneWidth / 2 - PLAYER_WIDTH / 2);
+    }
 }
 
 function resizeCanvas() {
@@ -88,9 +101,12 @@ function resizeCanvas() {
     game.canvas.width = window.innerWidth;
     game.canvas.height = window.innerHeight - headerHeight - footerHeight;
     
-    // Ensure player stays in bounds
-    if (game.player.y + game.player.height > game.canvas.height) {
-        game.player.y = game.canvas.height - GROUND_HEIGHT - game.player.height;
+    // Recalculate lanes
+    calculateLanes();
+    
+    // Update player X position
+    if (game.player) {
+        game.player.x = game.lanes[game.player.currentLane];
     }
 }
 
@@ -99,6 +115,9 @@ function setupEventListeners() {
     game.canvas.addEventListener('touchstart', handleTouchStart, false);
     game.canvas.addEventListener('touchend', handleTouchEnd, false);
     game.canvas.addEventListener('click', handleCanvasClick, false);
+    
+    // Keyboard for desktop
+    document.addEventListener('keydown', handleKeyPress, false);
     
     // Prevent page scroll while playing
     document.addEventListener('touchmove', (e) => {
@@ -113,6 +132,16 @@ function setupEventListeners() {
     
     // Share button
     document.getElementById('shareBtn').addEventListener('click', shareGame);
+}
+
+function handleKeyPress(e) {
+    if (game.gameState !== GAME_STATES.PLAYING) return;
+    
+    if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') {
+        moveLane(-1);
+    } else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') {
+        moveLane(1);
+    }
 }
 
 function handleTouchStart(e) {
@@ -135,27 +164,36 @@ function handleTouchEnd(e) {
     }
     
     if (game.gameState === GAME_STATES.PLAYING) {
-        const currentTime = Date.now();
-        const isDoubleTap = currentTime - game.lastTouchTime < 300;
+        const touchEndX = e.changedTouches[0].clientX;
+        const touchEndY = e.changedTouches[0].clientY;
+        const deltaX = touchEndX - game.touchStartX;
+        const deltaY = touchEndY - game.touchStartY;
         
-        if (isDoubleTap) {
-            // Double tap - second jump
-            if (game.player.canDoubleJump && !game.player.isJumping) {
-                game.player.velocityY = JUMP_STRENGTH * 0.9;
-                game.player.canDoubleJump = false;
-                game.player.isJumping = true;
+        // Check if it's a horizontal swipe
+        if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > game.swipeThreshold) {
+            if (deltaX > 0) {
+                // Swipe right
+                moveLane(1);
+            } else {
+                // Swipe left
+                moveLane(-1);
             }
-        } else {
-            // Single tap - jump
-            if (!game.player.isJumping) {
-                game.player.velocityY = JUMP_STRENGTH;
-                game.player.isJumping = true;
-                game.player.canDoubleJump = true;
+        } else if (Math.abs(deltaX) < game.swipeThreshold) {
+            // Tap - treat as lane change based on screen position
+            const tapX = touchEndX;
+            const screenThird = game.canvas.width / 3;
+            
+            if (tapX < screenThird) {
+                moveLane(-1);
+            } else if (tapX > screenThird * 2) {
+                moveLane(1);
             }
         }
-        
-        game.lastTouchTime = currentTime;
     }
+}
+
+function moveLane(direction) {
+    game.player.targetLane = Math.max(0, Math.min(NUM_LANES - 1, game.player.targetLane + direction));
 }
 
 function handleCanvasClick(e) {
@@ -165,10 +203,13 @@ function handleCanvasClick(e) {
     }
     
     if (game.gameState === GAME_STATES.PLAYING) {
-        if (!game.player.isJumping) {
-            game.player.velocityY = JUMP_STRENGTH;
-            game.player.isJumping = true;
-            game.player.canDoubleJump = true;
+        const clickX = e.clientX - game.canvas.getBoundingClientRect().left;
+        const screenThird = game.canvas.width / 3;
+        
+        if (clickX < screenThird) {
+            moveLane(-1);
+        } else if (clickX > screenThird * 2) {
+            moveLane(1);
         }
     }
 }
@@ -177,18 +218,19 @@ function startGame() {
     game.gameState = GAME_STATES.PLAYING;
     game.score = 0;
     game.gameTime = 0;
-    game.obstacleSpeed = INITIAL_OBSTACLE_SPEED;
+    game.scrollSpeed = INITIAL_SCROLL_SPEED;
     game.difficulty = 1;
     game.obstacles = [];
     game.lastObstacleSpawn = Date.now();
     game.spawnInterval = MAX_SPAWN_INTERVAL;
+    game.scrollOffset = 0;
     
     // Reset player
-    game.player.x = game.canvas.width * 0.15;
-    game.player.y = game.canvas.height - GROUND_HEIGHT - game.player.height;
-    game.player.velocityY = 0;
-    game.player.isJumping = false;
-    game.player.canDoubleJump = false;
+    game.player.currentLane = 1;
+    game.player.targetLane = 1;
+    game.player.y = game.canvas.height * 0.75;
+    game.player.x = game.lanes[game.player.currentLane];
+    game.player.velocityX = 0;
     
     // Hide screens and show game UI
     document.getElementById('startScreen').style.display = 'none';
@@ -231,15 +273,18 @@ function update(deltaTime) {
     const difficultyLevel = Math.floor(game.gameTime / 10000);
     game.difficulty = 1 + difficultyLevel * 0.15;
     
-    // Update obstacle speed (gradually increase)
-    game.obstacleSpeed = INITIAL_OBSTACLE_SPEED * game.difficulty;
+    // Update scroll speed (gradually increase)
+    game.scrollSpeed = INITIAL_SCROLL_SPEED * game.difficulty;
     
     // Update spawn interval (obstacles spawn more frequently)
-    game.spawnInterval = MAX_SPAWN_INTERVAL - Math.min((game.difficulty - 1) * 0.3, 1.2);
+    game.spawnInterval = MAX_SPAWN_INTERVAL - Math.min((game.difficulty - 1) * 0.25, 0.9);
     game.spawnInterval = Math.max(game.spawnInterval, MIN_SPAWN_INTERVAL);
     
     // Update score
     updateScore();
+    
+    // Update scroll offset
+    game.scrollOffset += game.scrollSpeed;
     
     // Update player
     updatePlayer(deltaTime);
@@ -261,44 +306,55 @@ function update(deltaTime) {
 }
 
 function updatePlayer(deltaTime) {
-    const ground = game.canvas.height - GROUND_HEIGHT;
+    // Smooth lane transition
+    const targetX = game.lanes[game.player.targetLane];
+    const dx = targetX - game.player.x;
     
-    // Apply gravity
-    game.player.velocityY += GRAVITY;
-    if (game.player.velocityY > MAX_FALL_SPEED) {
-        game.player.velocityY = MAX_FALL_SPEED;
-    }
-    
-    // Update position
-    game.player.y += game.player.velocityY;
-    
-    // Ground collision
-    if (game.player.y + game.player.height >= ground) {
-        game.player.y = ground - game.player.height;
-        game.player.velocityY = 0;
-        game.player.isJumping = false;
-        game.player.canDoubleJump = false;
+    if (Math.abs(dx) > 1) {
+        game.player.x += dx * 0.2; // Smooth interpolation
+    } else {
+        game.player.x = targetX;
+        game.player.currentLane = game.player.targetLane;
     }
 }
 
 function spawnObstacle() {
-    const ground = game.canvas.height - GROUND_HEIGHT;
-    const obstacle = {
-        x: game.canvas.width,
-        y: ground - OBSTACLE_HEIGHT,
-        width: OBSTACLE_WIDTH,
-        height: OBSTACLE_HEIGHT,
-        color: '#FF6B6B'
-    };
-    game.obstacles.push(obstacle);
+    // Randomly choose a lane
+    const randomLane = Math.floor(Math.random() * NUM_LANES);
+    
+    // Sometimes spawn multiple obstacles (but not all lanes)
+    const numObstacles = Math.random() < 0.3 ? 2 : 1;
+    const spawnedLanes = new Set();
+    
+    for (let i = 0; i < numObstacles; i++) {
+        let lane = randomLane;
+        
+        // Make sure we don't spawn in the same lane twice
+        if (numObstacles > 1) {
+            while (spawnedLanes.has(lane)) {
+                lane = Math.floor(Math.random() * NUM_LANES);
+            }
+        }
+        spawnedLanes.add(lane);
+        
+        const obstacle = {
+            lane: lane,
+            x: game.lanes[lane],
+            y: -OBSTACLE_HEIGHT,
+            width: OBSTACLE_WIDTH,
+            height: OBSTACLE_HEIGHT,
+            color: '#FF6B6B'
+        };
+        game.obstacles.push(obstacle);
+    }
 }
 
 function updateObstacles(deltaTime) {
     for (let i = game.obstacles.length - 1; i >= 0; i--) {
-        game.obstacles[i].x -= game.obstacleSpeed;
+        game.obstacles[i].y += game.scrollSpeed;
         
         // Remove off-screen obstacles
-        if (game.obstacles[i].x + game.obstacles[i].width < 0) {
+        if (game.obstacles[i].y > game.canvas.height) {
             game.obstacles.splice(i, 1);
         }
     }
@@ -323,30 +379,44 @@ function draw() {
     game.ctx.fillStyle = '#87CEEB';
     game.ctx.fillRect(0, 0, game.canvas.width, game.canvas.height);
     
-    // Draw sky gradient
+    // Draw sky gradient (top to bottom)
     const gradient = game.ctx.createLinearGradient(0, 0, 0, game.canvas.height);
-    gradient.addColorStop(0, '#87CEEB');
-    gradient.addColorStop(1, '#E0F6FF');
+    gradient.addColorStop(0, '#1a1a2e');
+    gradient.addColorStop(0.5, '#16213e');
+    gradient.addColorStop(1, '#0f3460');
     game.ctx.fillStyle = gradient;
     game.ctx.fillRect(0, 0, game.canvas.width, game.canvas.height);
     
-    // Draw ground
-    const groundY = game.canvas.height - GROUND_HEIGHT;
-    game.ctx.fillStyle = GROUND_COLOR;
-    game.ctx.fillRect(0, groundY, game.canvas.width, GROUND_HEIGHT);
+    // Draw lane dividers (vertical lines)
+    game.ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+    game.ctx.lineWidth = 2;
+    game.ctx.setLineDash([10, 10]);
     
-    // Draw ground pattern
-    game.ctx.strokeStyle = 'rgba(0, 0, 0, 0.1)';
-    game.ctx.lineWidth = 1;
-    for (let i = 0; i < game.canvas.width; i += 40) {
+    for (let i = 1; i < NUM_LANES; i++) {
+        const x = i * game.laneWidth;
         game.ctx.beginPath();
-        game.ctx.moveTo(i, groundY);
-        game.ctx.lineTo(i + 20, groundY + GROUND_HEIGHT);
+        game.ctx.moveTo(x, 0);
+        game.ctx.lineTo(x, game.canvas.height);
         game.ctx.stroke();
     }
+    game.ctx.setLineDash([]);
     
-    // Draw player
-    drawPlayer();
+    // Draw scrolling road lines
+    const lineSpacing = 80;
+    const offset = game.scrollOffset % lineSpacing;
+    
+    game.ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+    game.ctx.lineWidth = 3;
+    
+    for (let y = -offset; y < game.canvas.height; y += lineSpacing) {
+        for (let i = 1; i < NUM_LANES; i++) {
+            const x = i * game.laneWidth;
+            game.ctx.beginPath();
+            game.ctx.moveTo(x - 1, y);
+            game.ctx.lineTo(x + 1, y + 30);
+            game.ctx.stroke();
+        }
+    }
     
     // Draw obstacles
     for (let obstacle of game.obstacles) {
@@ -355,13 +425,21 @@ function draw() {
         
         // Add a gradient
         const obstacleGradient = game.ctx.createLinearGradient(
-            obstacle.x, obstacle.y, obstacle.x + obstacle.width, obstacle.y
+            obstacle.x, obstacle.y, obstacle.x, obstacle.y + obstacle.height
         );
         obstacleGradient.addColorStop(0, 'rgba(255, 255, 255, 0.3)');
         obstacleGradient.addColorStop(1, 'rgba(0, 0, 0, 0.1)');
         game.ctx.fillStyle = obstacleGradient;
         game.ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+        
+        // Add border
+        game.ctx.strokeStyle = 'rgba(139, 0, 0, 0.8)';
+        game.ctx.lineWidth = 2;
+        game.ctx.strokeRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
     }
+    
+    // Draw player
+    drawPlayer();
 }
 
 function drawPlayer() {
