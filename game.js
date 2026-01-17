@@ -6,9 +6,9 @@ const GAME_STATES = {
 };
 
 const NUM_LANES = 3;
-const INITIAL_SCROLL_SPEED = 1.8; // Further reduced from 2.5 for even smoother gameplay
-const MIN_SPAWN_INTERVAL = 2.0; // Increased from 1.5 to give more reaction time
-const MAX_SPAWN_INTERVAL = 3.5; // Increased from 3.0 for easier start
+const INITIAL_SCROLL_SPEED = 1.5; // Further reduced from 1.8 for easier start
+const MIN_SPAWN_INTERVAL = 2.5; // Increased from 2.0 for more time
+const MAX_SPAWN_INTERVAL = 4.0; // Increased from 3.5 for easier start
 
 // 3D Perspective constants
 const HORIZON_Y = 0.25; // Horizon at 25% from top
@@ -292,6 +292,7 @@ function startGame() {
     game.spawnInterval = MAX_SPAWN_INTERVAL;
     game.scrollOffset = 0;
     game.animationFrame = 0;
+    game.lastMoveTime = 0; // Reset movement cooldown
     
     // Reset player
     game.player.currentLane = 1;
@@ -341,9 +342,9 @@ function update(deltaTime) {
     game.gameTime += deltaTime;
     game.animationFrame++;
     
-    // Update difficulty
+    // Update difficulty - increases every 10 seconds
     const difficultyLevel = Math.floor(game.gameTime / 10000);
-    game.difficulty = 1 + difficultyLevel * 0.1; // Reduced from 0.15 to 0.1 for more gradual increase
+    game.difficulty = 1 + difficultyLevel * 0.15; // Increased from 0.1 to 0.15 for more noticeable progression
     
     // Update scroll speed (gradually increase)
     game.scrollSpeed = INITIAL_SCROLL_SPEED * game.difficulty;
@@ -449,7 +450,7 @@ function spawnObstacle() {
 }
 
 function updateObstacles(deltaTime) {
-    const speed = game.scrollSpeed * 0.006; // Further reduced from 0.008 to 0.006 for much slower cars
+    const speed = game.scrollSpeed * 0.005; // Further reduced from 0.006 for even slower, more gradual approach
     
     for (let i = game.obstacles.length - 1; i >= 0; i--) {
         game.obstacles[i].z += speed;
