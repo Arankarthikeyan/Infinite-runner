@@ -48,6 +48,13 @@ body {
     letter-spacing: 1px;
 }
 
+.header h1 .version {
+    font-size: 0.6em;
+    opacity: 0.7;
+    font-weight: 400;
+    margin-left: 0.5rem;
+}
+
 .controls-info {
     display: flex;
     gap: 1rem;
