@@ -6,9 +6,9 @@ const GAME_STATES = {
 };
 
 const NUM_LANES = 3;
-const INITIAL_SCROLL_SPEED = 2.5; // Further reduced from 4 to 2.5 for much smoother gameplay
-const MIN_SPAWN_INTERVAL = 1.5; // Increased from 1.2 to give even more time
-const MAX_SPAWN_INTERVAL = 3.0; // Increased from 2.5 for easier start
+const INITIAL_SCROLL_SPEED = 1.8; // Further reduced from 2.5 for even smoother gameplay
+const MIN_SPAWN_INTERVAL = 2.0; // Increased from 1.5 to give more reaction time
+const MAX_SPAWN_INTERVAL = 3.5; // Increased from 3.0 for easier start
 
 // 3D Perspective constants
 const HORIZON_Y = 0.25; // Horizon at 25% from top
@@ -63,6 +63,7 @@ const game = {
     touchStartX: 0,
     touchStartY: 0,
     swipeThreshold: 50,
+    lastTouchTime: 0, // Track last touch to prevent double events
     
     // Difficulty scaling
     difficulty: 1
@@ -217,6 +218,9 @@ function handleTouchEnd(e) {
         const deltaX = touchEndX - game.touchStartX;
         const deltaY = touchEndY - game.touchStartY;
         
+        // Mark that we handled a touch (prevent click event from firing)
+        game.lastTouchTime = Date.now();
+        
         // Check if it's a horizontal swipe
         if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > game.swipeThreshold) {
             if (deltaX > 0) {
@@ -246,6 +250,11 @@ function moveLane(direction) {
 }
 
 function handleCanvasClick(e) {
+    // Ignore click events if a touch event just happened (prevents double-triggering on mobile)
+    if (Date.now() - game.lastTouchTime < 500) {
+        return;
+    }
+    
     if (game.gameState === GAME_STATES.START || game.gameState === GAME_STATES.GAME_OVER) {
         startGame();
         return;
@@ -431,7 +440,7 @@ function spawnObstacle() {
 }
 
 function updateObstacles(deltaTime) {
-    const speed = game.scrollSpeed * 0.008; // Reduced from 0.01 to 0.008 for slower obstacles
+    const speed = game.scrollSpeed * 0.006; // Further reduced from 0.008 to 0.006 for much slower cars
     
     for (let i = game.obstacles.length - 1; i >= 0; i--) {
         game.obstacles[i].z += speed;
