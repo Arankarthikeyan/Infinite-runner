@@ -6,9 +6,9 @@ const GAME_STATES = {
 };
 
 const NUM_LANES = 3;
-const INITIAL_SCROLL_SPEED = 8;
-const MIN_SPAWN_INTERVAL = 0.8;
-const MAX_SPAWN_INTERVAL = 1.8;
+const INITIAL_SCROLL_SPEED = 4; // Reduced from 8 to 4 for smoother gameplay
+const MIN_SPAWN_INTERVAL = 1.2; // Increased from 0.8 to give more time
+const MAX_SPAWN_INTERVAL = 2.5; // Increased from 1.8 for easier start
 
 // 3D Perspective constants
 const HORIZON_Y = 0.25; // Horizon at 25% from top
@@ -324,7 +324,7 @@ function update(deltaTime) {
     
     // Update difficulty
     const difficultyLevel = Math.floor(game.gameTime / 10000);
-    game.difficulty = 1 + difficultyLevel * 0.15;
+    game.difficulty = 1 + difficultyLevel * 0.1; // Reduced from 0.15 to 0.1 for more gradual increase
     
     // Update scroll speed (gradually increase)
     game.scrollSpeed = INITIAL_SCROLL_SPEED * game.difficulty;
@@ -498,7 +498,8 @@ function draw() {
 
 function drawBuildings() {
     for (let building of game.buildings) {
-        const z = (building.z + game.scrollOffset * 0.001) % 1;
+        // Slower parallax effect for buildings - divide by 3 instead of 1 for depth perception
+        const z = (building.z + game.scrollOffset * 0.0003) % 1;
         const scale = PERSPECTIVE_SCALE_MIN + (PERSPECTIVE_SCALE_MAX - PERSPECTIVE_SCALE_MIN) * z;
         const y = game.horizonY + (game.canvas.height - game.horizonY) * z;
         
