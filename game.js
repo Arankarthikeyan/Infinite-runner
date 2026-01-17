@@ -64,6 +64,8 @@ const game = {
     touchStartY: 0,
     swipeThreshold: 50,
     lastTouchTime: 0, // Track last touch to prevent double events
+    lastMoveTime: 0, // Track last lane change to prevent rapid double-moves
+    moveCooldown: 200, // Minimum time between lane changes in ms
     
     // Difficulty scaling
     difficulty: 1
@@ -246,7 +248,14 @@ function handleTouchEnd(e) {
 }
 
 function moveLane(direction) {
+    // Prevent rapid double-moves with cooldown
+    const currentTime = Date.now();
+    if (currentTime - game.lastMoveTime < game.moveCooldown) {
+        return; // Ignore move if still in cooldown
+    }
+    
     game.player.targetLane = Math.max(0, Math.min(NUM_LANES - 1, game.player.targetLane + direction));
+    game.lastMoveTime = currentTime;
 }
 
 function handleCanvasClick(e) {
@@ -620,6 +629,7 @@ function drawCar(obstacle) {
     
     // Draw shadow
     game.ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+    game.ctx.beginPath();
     game.ctx.ellipse(x, y + carHeight * 0.9, carWidth * 0.6, carWidth * 0.2, 0, 0, Math.PI * 2);
     game.ctx.fill();
     
@@ -694,6 +704,7 @@ function drawRunningBoy() {
     
     // Draw shadow
     game.ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+    game.ctx.beginPath();
     game.ctx.ellipse(x, y - 2 * scale, 15 * scale, 5 * scale, 0, 0, Math.PI * 2);
     game.ctx.fill();
     
