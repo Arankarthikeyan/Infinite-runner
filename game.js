@@ -223,17 +223,19 @@ function handleTouchEnd(e) {
         // Mark that we handled a touch (prevent click event from firing)
         game.lastTouchTime = Date.now();
         
-        // Check if it's a horizontal swipe
-        if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > game.swipeThreshold) {
+        // Determine if this is a swipe or a tap
+        const isHorizontalSwipe = Math.abs(deltaX) > game.swipeThreshold;
+        const isSmallMovement = Math.abs(deltaX) < game.swipeThreshold && Math.abs(deltaY) < game.swipeThreshold;
+        
+        if (isHorizontalSwipe) {
+            // Handle swipe
             if (deltaX > 0) {
-                // Swipe right
                 moveLane(1);
             } else {
-                // Swipe left
                 moveLane(-1);
             }
-        } else if (Math.abs(deltaX) < game.swipeThreshold && Math.abs(deltaY) < game.swipeThreshold) {
-            // Only tap if not swiping - treat as lane change based on screen position
+        } else if (isSmallMovement) {
+            // Handle tap - check which third of screen was tapped
             const tapX = touchEndX;
             const screenThird = game.canvas.width / 3;
             
@@ -242,8 +244,9 @@ function handleTouchEnd(e) {
             } else if (tapX > screenThird * 2) {
                 moveLane(1);
             }
-            // Middle third does nothing - prevents accidental moves
+            // Middle third does nothing
         }
+        // If movement is vertical or diagonal, ignore it completely
     }
 }
 
