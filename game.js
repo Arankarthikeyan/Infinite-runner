@@ -6,14 +6,16 @@ const GAME_STATES = {
 };
 
 const NUM_LANES = 3;
-const PLAYER_WIDTH = 40;
-const PLAYER_HEIGHT = 50;
-const OBSTACLE_WIDTH = 50;
-const OBSTACLE_HEIGHT = 50;
-const INITIAL_SCROLL_SPEED = 6;
+const INITIAL_SCROLL_SPEED = 8;
 const MIN_SPAWN_INTERVAL = 0.8;
 const MAX_SPAWN_INTERVAL = 1.8;
-const LANE_SWITCH_SPEED = 15;
+
+// 3D Perspective constants
+const HORIZON_Y = 0.25; // Horizon at 25% from top
+const ROAD_WIDTH_HORIZON = 0.3; // Road width at horizon (30% of screen)
+const ROAD_WIDTH_BOTTOM = 0.95; // Road width at bottom (95% of screen)
+const PERSPECTIVE_SCALE_MIN = 0.3; // Minimum scale for distant objects
+const PERSPECTIVE_SCALE_MAX = 1.0; // Maximum scale for close objects
 
 // Game object
 const game = {
@@ -23,21 +25,27 @@ const game = {
     score: 0,
     bestScore: localStorage.getItem('bestScore') || 0,
     gameTime: 0,
+    animationFrame: 0,
     
-    // Lane system
-    laneWidth: 0,
+    // 3D Perspective
+    horizonY: 0,
+    roadLeftHorizon: 0,
+    roadRightHorizon: 0,
+    roadLeftBottom: 0,
+    roadRightBottom: 0,
+    
+    // Lane system (3D lanes)
     lanes: [],
     
     // Player
     player: {
         currentLane: 1, // 0 = left, 1 = center, 2 = right
         targetLane: 1,
-        x: 0,
-        y: 0,
-        width: PLAYER_WIDTH,
-        height: PLAYER_HEIGHT,
-        velocityX: 0,
-        color: '#FF6B6B'
+        z: 0.75, // Position on road (0 = horizon, 1 = bottom)
+        laneOffset: 0,
+        runCycle: 0, // Animation frame for running
+        armSwing: 0,
+        legSwing: 0
     },
     
     // Game mechanics
@@ -46,6 +54,10 @@ const game = {
     lastObstacleSpawn: 0,
     spawnInterval: MAX_SPAWN_INTERVAL,
     scrollOffset: 0,
+    
+    // Environmental objects
+    roadMarkers: [],
+    buildings: [],
     
     // Touch handling
     touchStartX: 0,
@@ -65,12 +77,11 @@ function init() {
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
     
-    // Calculate lane positions
-    calculateLanes();
+    // Calculate 3D perspective
+    calculate3DPerspective();
     
-    // Initialize player position
-    game.player.y = game.canvas.height * 0.75;
-    game.player.x = game.lanes[game.player.currentLane];
+    // Initialize buildings
+    initializeBuildings();
     
     // Set up UI
     updateBestScoreDisplay();
@@ -80,12 +91,54 @@ function init() {
     gameLoop();
 }
 
-function calculateLanes() {
-    game.laneWidth = game.canvas.width / NUM_LANES;
+function calculate3DPerspective() {
+    const w = game.canvas.width;
+    const h = game.canvas.height;
+    
+    // Calculate horizon line
+    game.horizonY = h * HORIZON_Y;
+    
+    // Calculate road edges at horizon
+    const horizonRoadWidth = w * ROAD_WIDTH_HORIZON;
+    game.roadLeftHorizon = (w - horizonRoadWidth) / 2;
+    game.roadRightHorizon = (w + horizonRoadWidth) / 2;
+    
+    // Calculate road edges at bottom
+    const bottomRoadWidth = w * ROAD_WIDTH_BOTTOM;
+    game.roadLeftBottom = (w - bottomRoadWidth) / 2;
+    game.roadRightBottom = (w + bottomRoadWidth) / 2;
+    
+    // Calculate lane positions (3 lanes in 3D space)
     game.lanes = [];
     for (let i = 0; i < NUM_LANES; i++) {
-        game.lanes.push(i * game.laneWidth + game.laneWidth / 2 - PLAYER_WIDTH / 2);
+        game.lanes.push((i + 0.5) / NUM_LANES);
     }
+}
+
+function initializeBuildings() {
+    game.buildings = [];
+    // Left side buildings
+    for (let i = 0; i < 5; i++) {
+        game.buildings.push({
+            side: 'left',
+            z: i * 0.2,
+            height: 0.3 + Math.random() * 0.4,
+            color: `hsl(${200 + Math.random() * 40}, 40%, ${30 + Math.random() * 20}%)`
+        });
+    }
+    // Right side buildings
+    for (let i = 0; i < 5; i++) {
+        game.buildings.push({
+            side: 'right',
+            z: i * 0.2,
+            height: 0.3 + Math.random() * 0.4,
+            color: `hsl(${200 + Math.random() * 40}, 40%, ${30 + Math.random() * 20}%)`
+        });
+    }
+}
+
+function calculateLanes() {
+    calculate3DPerspective();
 }
 
 function resizeCanvas() {
@@ -101,13 +154,8 @@ function resizeCanvas() {
     game.canvas.width = window.innerWidth;
     game.canvas.height = window.innerHeight - headerHeight - footerHeight;
     
-    // Recalculate lanes
-    calculateLanes();
-    
-    // Update player X position
-    if (game.player) {
-        game.player.x = game.lanes[game.player.currentLane];
-    }
+    // Recalculate 3D perspective
+    calculate3DPerspective();
 }
 
 function setupEventListeners() {
@@ -224,13 +272,17 @@ function startGame() {
     game.lastObstacleSpawn = Date.now();
     game.spawnInterval = MAX_SPAWN_INTERVAL;
     game.scrollOffset = 0;
+    game.animationFrame = 0;
     
     // Reset player
     game.player.currentLane = 1;
     game.player.targetLane = 1;
-    game.player.y = game.canvas.height * 0.75;
-    game.player.x = game.lanes[game.player.currentLane];
-    game.player.velocityX = 0;
+    game.player.z = 0.75;
+    game.player.laneOffset = 0;
+    game.player.runCycle = 0;
+    
+    // Reset road markers
+    game.roadMarkers = [];
     
     // Hide screens and show game UI
     document.getElementById('startScreen').style.display = 'none';
@@ -268,6 +320,7 @@ function update(deltaTime) {
     if (game.gameState !== GAME_STATES.PLAYING) return;
     
     game.gameTime += deltaTime;
+    game.animationFrame++;
     
     // Update difficulty
     const difficultyLevel = Math.floor(game.gameTime / 10000);
@@ -284,7 +337,7 @@ function update(deltaTime) {
     updateScore();
     
     // Update scroll offset
-    game.scrollOffset += game.scrollSpeed;
+    game.scrollOffset += game.scrollSpeed * (deltaTime / 16.67);
     
     // Update player
     updatePlayer(deltaTime);
@@ -299,6 +352,9 @@ function update(deltaTime) {
     // Update obstacles
     updateObstacles(deltaTime);
     
+    // Update road markers
+    updateRoadMarkers(deltaTime);
+    
     // Check collisions
     if (checkCollisions()) {
         endGame();
@@ -307,14 +363,40 @@ function update(deltaTime) {
 
 function updatePlayer(deltaTime) {
     // Smooth lane transition
-    const targetX = game.lanes[game.player.targetLane];
-    const dx = targetX - game.player.x;
+    const targetLanePos = game.lanes[game.player.targetLane];
+    const currentLanePos = game.lanes[game.player.currentLane];
     
-    if (Math.abs(dx) > 1) {
-        game.player.x += dx * 0.2; // Smooth interpolation
+    // Interpolate lane offset
+    const laneDistance = targetLanePos - currentLanePos;
+    
+    if (Math.abs(game.player.laneOffset - laneDistance) > 0.01) {
+        game.player.laneOffset += (laneDistance - game.player.laneOffset) * 0.15;
     } else {
-        game.player.x = targetX;
+        game.player.laneOffset = laneDistance;
         game.player.currentLane = game.player.targetLane;
+    }
+    
+    // Update running animation
+    game.player.runCycle += game.scrollSpeed * 0.15;
+    game.player.armSwing = Math.sin(game.player.runCycle) * 0.3;
+    game.player.legSwing = Math.sin(game.player.runCycle + Math.PI) * 0.5;
+}
+
+function updateRoadMarkers(deltaTime) {
+    // Add new markers if needed
+    if (game.roadMarkers.length === 0 || game.roadMarkers[game.roadMarkers.length - 1].z > 0.1) {
+        game.roadMarkers.push({ z: 0 });
+    }
+    
+    // Update existing markers
+    const speed = game.scrollSpeed * 0.01;
+    for (let i = game.roadMarkers.length - 1; i >= 0; i--) {
+        game.roadMarkers[i].z += speed;
+        
+        // Remove markers that are too close
+        if (game.roadMarkers[i].z > 1) {
+            game.roadMarkers.splice(i, 1);
+        }
     }
 }
 
@@ -339,149 +421,353 @@ function spawnObstacle() {
         
         const obstacle = {
             lane: lane,
-            x: game.lanes[lane],
-            y: -OBSTACLE_HEIGHT,
-            width: OBSTACLE_WIDTH,
-            height: OBSTACLE_HEIGHT,
-            color: '#FF6B6B'
+            z: 0, // Start at horizon
+            type: 'car',
+            color: ['#FF6B6B', '#4ECDC4', '#FFE66D', '#A8DADC'][Math.floor(Math.random() * 4)]
         };
         game.obstacles.push(obstacle);
     }
 }
 
 function updateObstacles(deltaTime) {
+    const speed = game.scrollSpeed * 0.01;
+    
     for (let i = game.obstacles.length - 1; i >= 0; i--) {
-        game.obstacles[i].y += game.scrollSpeed;
+        game.obstacles[i].z += speed;
         
         // Remove off-screen obstacles
-        if (game.obstacles[i].y > game.canvas.height) {
+        if (game.obstacles[i].z > 1) {
             game.obstacles.splice(i, 1);
         }
     }
 }
 
 function checkCollisions() {
+    const playerLane = game.player.currentLane;
+    const playerZ = game.player.z;
+    const collisionThreshold = 0.08; // Z-distance for collision
+    
     for (let obstacle of game.obstacles) {
-        if (
-            game.player.x < obstacle.x + obstacle.width &&
-            game.player.x + game.player.width > obstacle.x &&
-            game.player.y < obstacle.y + obstacle.height &&
-            game.player.y + game.player.height > obstacle.y
-        ) {
-            return true;
+        // Check if in same lane
+        if (obstacle.lane === playerLane && Math.abs(game.player.laneOffset) < 0.2) {
+            // Check if at similar Z position
+            if (Math.abs(obstacle.z - playerZ) < collisionThreshold) {
+                return true;
+            }
         }
     }
     return false;
 }
 
 function draw() {
-    // Clear canvas
-    game.ctx.fillStyle = '#87CEEB';
-    game.ctx.fillRect(0, 0, game.canvas.width, game.canvas.height);
+    const w = game.canvas.width;
+    const h = game.canvas.height;
     
-    // Draw sky gradient (top to bottom)
-    const gradient = game.ctx.createLinearGradient(0, 0, 0, game.canvas.height);
-    gradient.addColorStop(0, '#1a1a2e');
-    gradient.addColorStop(0.5, '#16213e');
-    gradient.addColorStop(1, '#0f3460');
-    game.ctx.fillStyle = gradient;
-    game.ctx.fillRect(0, 0, game.canvas.width, game.canvas.height);
+    // Clear canvas and draw sky
+    const skyGradient = game.ctx.createLinearGradient(0, 0, 0, game.horizonY);
+    skyGradient.addColorStop(0, '#87CEEB');
+    skyGradient.addColorStop(1, '#E0F6FF');
+    game.ctx.fillStyle = skyGradient;
+    game.ctx.fillRect(0, 0, w, game.horizonY);
     
-    // Draw lane dividers (vertical lines)
-    game.ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
-    game.ctx.lineWidth = 2;
-    game.ctx.setLineDash([10, 10]);
+    // Draw ground gradient below horizon
+    const groundGradient = game.ctx.createLinearGradient(0, game.horizonY, 0, h);
+    groundGradient.addColorStop(0, '#90EE90');
+    groundGradient.addColorStop(1, '#228B22');
+    game.ctx.fillStyle = groundGradient;
+    game.ctx.fillRect(0, game.horizonY, w, h - game.horizonY);
     
-    for (let i = 1; i < NUM_LANES; i++) {
-        const x = i * game.laneWidth;
-        game.ctx.beginPath();
-        game.ctx.moveTo(x, 0);
-        game.ctx.lineTo(x, game.canvas.height);
-        game.ctx.stroke();
-    }
-    game.ctx.setLineDash([]);
+    // Draw buildings in the background
+    drawBuildings();
     
-    // Draw scrolling road lines
-    const lineSpacing = 80;
-    const offset = game.scrollOffset % lineSpacing;
+    // Draw road
+    drawRoad();
     
-    game.ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
-    game.ctx.lineWidth = 3;
+    // Draw road markers
+    drawRoadMarkers();
     
-    for (let y = -offset; y < game.canvas.height; y += lineSpacing) {
-        for (let i = 1; i < NUM_LANES; i++) {
-            const x = i * game.laneWidth;
-            game.ctx.beginPath();
-            game.ctx.moveTo(x - 1, y);
-            game.ctx.lineTo(x + 1, y + 30);
-            game.ctx.stroke();
-        }
-    }
-    
-    // Draw obstacles
+    // Sort and draw obstacles (far to near)
+    game.obstacles.sort((a, b) => a.z - b.z);
     for (let obstacle of game.obstacles) {
-        game.ctx.fillStyle = obstacle.color;
-        game.ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
-        
-        // Add a gradient
-        const obstacleGradient = game.ctx.createLinearGradient(
-            obstacle.x, obstacle.y, obstacle.x, obstacle.y + obstacle.height
-        );
-        obstacleGradient.addColorStop(0, 'rgba(255, 255, 255, 0.3)');
-        obstacleGradient.addColorStop(1, 'rgba(0, 0, 0, 0.1)');
-        game.ctx.fillStyle = obstacleGradient;
-        game.ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
-        
-        // Add border
-        game.ctx.strokeStyle = 'rgba(139, 0, 0, 0.8)';
-        game.ctx.lineWidth = 2;
-        game.ctx.strokeRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+        drawCar(obstacle);
     }
     
-    // Draw player
-    drawPlayer();
+    // Draw player (running boy)
+    drawRunningBoy();
 }
 
-function drawPlayer() {
-    // Draw player as a rounded rectangle
-    const radius = 5;
-    game.ctx.fillStyle = game.player.color;
-    
+function drawBuildings() {
+    for (let building of game.buildings) {
+        const z = (building.z + game.scrollOffset * 0.001) % 1;
+        const scale = PERSPECTIVE_SCALE_MIN + (PERSPECTIVE_SCALE_MAX - PERSPECTIVE_SCALE_MIN) * z;
+        const y = game.horizonY + (game.canvas.height - game.horizonY) * z;
+        
+        const buildingHeight = game.canvas.height * building.height * scale;
+        const buildingWidth = 80 * scale;
+        
+        let x;
+        if (building.side === 'left') {
+            x = lerp(game.roadLeftHorizon, game.roadLeftBottom, z) - buildingWidth - 20;
+        } else {
+            x = lerp(game.roadRightHorizon, game.roadRightBottom, z) + 20;
+        }
+        
+        // Draw building
+        game.ctx.fillStyle = building.color;
+        game.ctx.fillRect(x, y - buildingHeight, buildingWidth, buildingHeight);
+        
+        // Add windows
+        game.ctx.fillStyle = 'rgba(255, 255, 200, 0.6)';
+        const windowSize = 4 * scale;
+        const windowSpacing = 10 * scale;
+        for (let wy = y - buildingHeight + 10; wy < y - 10; wy += windowSpacing) {
+            for (let wx = x + 10; wx < x + buildingWidth - 10; wx += windowSpacing) {
+                game.ctx.fillRect(wx, wy, windowSize, windowSize);
+            }
+        }
+    }
+}
+
+function drawRoad() {
+    // Draw road as trapezoid
+    game.ctx.fillStyle = '#4A4A4A';
     game.ctx.beginPath();
-    game.ctx.moveTo(game.player.x + radius, game.player.y);
-    game.ctx.lineTo(game.player.x + game.player.width - radius, game.player.y);
-    game.ctx.quadraticCurveTo(
-        game.player.x + game.player.width,
-        game.player.y,
-        game.player.x + game.player.width,
-        game.player.y + radius
-    );
-    game.ctx.lineTo(game.player.x + game.player.width, game.player.y + game.player.height - radius);
-    game.ctx.quadraticCurveTo(
-        game.player.x + game.player.width,
-        game.player.y + game.player.height,
-        game.player.x + game.player.width - radius,
-        game.player.y + game.player.height
-    );
-    game.ctx.lineTo(game.player.x + radius, game.player.y + game.player.height);
-    game.ctx.quadraticCurveTo(
-        game.player.x,
-        game.player.y + game.player.height,
-        game.player.x,
-        game.player.y + game.player.height - radius
-    );
-    game.ctx.lineTo(game.player.x, game.player.y + radius);
-    game.ctx.quadraticCurveTo(
-        game.player.x,
-        game.player.y,
-        game.player.x + radius,
-        game.player.y
-    );
+    game.ctx.moveTo(game.roadLeftHorizon, game.horizonY);
+    game.ctx.lineTo(game.roadRightHorizon, game.horizonY);
+    game.ctx.lineTo(game.roadRightBottom, game.canvas.height);
+    game.ctx.lineTo(game.roadLeftBottom, game.canvas.height);
+    game.ctx.closePath();
     game.ctx.fill();
     
-    // Add shine effect
-    game.ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
-    game.ctx.fillRect(game.player.x + 2, game.player.y + 2, game.player.width * 0.4, game.player.height * 0.3);
+    // Draw road edges
+    game.ctx.strokeStyle = '#FFFFFF';
+    game.ctx.lineWidth = 3;
+    game.ctx.beginPath();
+    game.ctx.moveTo(game.roadLeftHorizon, game.horizonY);
+    game.ctx.lineTo(game.roadLeftBottom, game.canvas.height);
+    game.ctx.stroke();
+    
+    game.ctx.beginPath();
+    game.ctx.moveTo(game.roadRightHorizon, game.horizonY);
+    game.ctx.lineTo(game.roadRightBottom, game.canvas.height);
+    game.ctx.stroke();
+    
+    // Draw lane dividers
+    for (let i = 1; i < NUM_LANES; i++) {
+        const lanePos = i / NUM_LANES;
+        game.ctx.strokeStyle = '#FFFF00';
+        game.ctx.lineWidth = 2;
+        game.ctx.setLineDash([10, 10]);
+        game.ctx.beginPath();
+        
+        const xTop = lerp(game.roadLeftHorizon, game.roadRightHorizon, lanePos);
+        const xBottom = lerp(game.roadLeftBottom, game.roadRightBottom, lanePos);
+        
+        game.ctx.moveTo(xTop, game.horizonY);
+        game.ctx.lineTo(xBottom, game.canvas.height);
+        game.ctx.stroke();
+        game.ctx.setLineDash([]);
+    }
+}
+
+function drawRoadMarkers() {
+    for (let marker of game.roadMarkers) {
+        for (let i = 1; i < NUM_LANES; i++) {
+            const lanePos = i / NUM_LANES;
+            const scale = PERSPECTIVE_SCALE_MIN + (PERSPECTIVE_SCALE_MAX - PERSPECTIVE_SCALE_MIN) * marker.z;
+            const y = game.horizonY + (game.canvas.height - game.horizonY) * marker.z;
+            const x = lerp(
+                lerp(game.roadLeftHorizon, game.roadRightHorizon, lanePos),
+                lerp(game.roadLeftBottom, game.roadRightBottom, lanePos),
+                marker.z
+            );
+            
+            const markerLength = 30 * scale;
+            const markerWidth = 4 * scale;
+            
+            game.ctx.fillStyle = '#FFFFFF';
+            game.ctx.fillRect(x - markerWidth / 2, y, markerWidth, markerLength);
+        }
+    }
+}
+
+function drawCar(obstacle) {
+    const z = obstacle.z;
+    const scale = PERSPECTIVE_SCALE_MIN + (PERSPECTIVE_SCALE_MAX - PERSPECTIVE_SCALE_MIN) * z;
+    const y = game.horizonY + (game.canvas.height - game.horizonY) * z;
+    
+    // Calculate X position based on lane
+    const lanePosNorm = game.lanes[obstacle.lane];
+    const xTop = lerp(game.roadLeftHorizon, game.roadRightHorizon, lanePosNorm);
+    const xBottom = lerp(game.roadLeftBottom, game.roadRightBottom, lanePosNorm);
+    const x = lerp(xTop, xBottom, z);
+    
+    const carWidth = 50 * scale;
+    const carHeight = 80 * scale;
+    const carBodyHeight = 50 * scale;
+    const carRoofHeight = 30 * scale;
+    
+    // Draw shadow
+    game.ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+    game.ctx.ellipse(x, y + carHeight * 0.9, carWidth * 0.6, carWidth * 0.2, 0, 0, Math.PI * 2);
+    game.ctx.fill();
+    
+    // Draw car body
+    game.ctx.fillStyle = obstacle.color;
+    game.ctx.fillRect(x - carWidth / 2, y - carHeight, carWidth, carBodyHeight);
+    
+    // Draw car roof
+    const roofWidth = carWidth * 0.7;
+    game.ctx.fillRect(x - roofWidth / 2, y - carHeight, roofWidth, carRoofHeight);
+    
+    // Add shading
+    const carGradient = game.ctx.createLinearGradient(x - carWidth / 2, y - carHeight, x + carWidth / 2, y - carHeight);
+    carGradient.addColorStop(0, 'rgba(0, 0, 0, 0.3)');
+    carGradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.3)');
+    carGradient.addColorStop(1, 'rgba(0, 0, 0, 0.3)');
+    game.ctx.fillStyle = carGradient;
+    game.ctx.fillRect(x - carWidth / 2, y - carHeight, carWidth, carBodyHeight);
+    
+    // Draw windows
+    game.ctx.fillStyle = 'rgba(100, 150, 200, 0.7)';
+    const windowWidth = roofWidth * 0.8;
+    const windowHeight = carRoofHeight * 0.7;
+    game.ctx.fillRect(x - windowWidth / 2, y - carHeight + 5 * scale, windowWidth, windowHeight);
+    
+    // Draw wheels
+    const wheelRadius = 8 * scale;
+    const wheelY = y - carBodyHeight + carHeight - wheelRadius;
+    
+    game.ctx.fillStyle = '#2C2C2C';
+    game.ctx.beginPath();
+    game.ctx.arc(x - carWidth / 3, wheelY, wheelRadius, 0, Math.PI * 2);
+    game.ctx.fill();
+    
+    game.ctx.beginPath();
+    game.ctx.arc(x + carWidth / 3, wheelY, wheelRadius, 0, Math.PI * 2);
+    game.ctx.fill();
+    
+    // Wheel rims
+    game.ctx.fillStyle = '#888';
+    game.ctx.beginPath();
+    game.ctx.arc(x - carWidth / 3, wheelY, wheelRadius * 0.5, 0, Math.PI * 2);
+    game.ctx.fill();
+    
+    game.ctx.beginPath();
+    game.ctx.arc(x + carWidth / 3, wheelY, wheelRadius * 0.5, 0, Math.PI * 2);
+    game.ctx.fill();
+}
+
+function drawRunningBoy() {
+    const z = game.player.z;
+    const scale = PERSPECTIVE_SCALE_MIN + (PERSPECTIVE_SCALE_MAX - PERSPECTIVE_SCALE_MIN) * z;
+    const y = game.horizonY + (game.canvas.height - game.horizonY) * z;
+    
+    // Calculate X position based on lane and offset
+    const baseLanePos = game.lanes[game.player.currentLane];
+    const targetLanePos = game.lanes[game.player.targetLane];
+    const lanePosNorm = baseLanePos + game.player.laneOffset;
+    
+    const xTop = lerp(game.roadLeftHorizon, game.roadRightHorizon, lanePosNorm);
+    const xBottom = lerp(game.roadLeftBottom, game.roadRightBottom, lanePosNorm);
+    const x = lerp(xTop, xBottom, z);
+    
+    const boyHeight = 60 * scale;
+    const headRadius = 10 * scale;
+    const bodyHeight = 25 * scale;
+    const legHeight = 20 * scale;
+    
+    // Running animation offset
+    const bounce = Math.abs(Math.sin(game.player.runCycle)) * 3 * scale;
+    const baseY = y - boyHeight + bounce;
+    
+    // Draw shadow
+    game.ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+    game.ctx.ellipse(x, y - 2 * scale, 15 * scale, 5 * scale, 0, 0, Math.PI * 2);
+    game.ctx.fill();
+    
+    // Draw legs (animated)
+    const legSwing = game.player.legSwing;
+    game.ctx.strokeStyle = '#4A90E2';
+    game.ctx.lineWidth = 4 * scale;
+    game.ctx.lineCap = 'round';
+    
+    // Left leg
+    game.ctx.beginPath();
+    game.ctx.moveTo(x, baseY + headRadius * 2 + bodyHeight);
+    game.ctx.lineTo(x - 5 * scale + legSwing * 10, baseY + headRadius * 2 + bodyHeight + legHeight);
+    game.ctx.stroke();
+    
+    // Right leg
+    game.ctx.beginPath();
+    game.ctx.moveTo(x, baseY + headRadius * 2 + bodyHeight);
+    game.ctx.lineTo(x + 5 * scale - legSwing * 10, baseY + headRadius * 2 + bodyHeight + legHeight);
+    game.ctx.stroke();
+    
+    // Draw body
+    game.ctx.fillStyle = '#4A90E2';
+    game.ctx.fillRect(x - 8 * scale, baseY + headRadius * 2, 16 * scale, bodyHeight);
+    
+    // Draw arms (animated)
+    const armSwing = game.player.armSwing;
+    game.ctx.strokeStyle = '#FDB99B';
+    game.ctx.lineWidth = 3 * scale;
+    
+    // Left arm
+    game.ctx.beginPath();
+    game.ctx.moveTo(x - 8 * scale, baseY + headRadius * 2 + 5 * scale);
+    game.ctx.lineTo(x - 15 * scale + armSwing * 15, baseY + headRadius * 2 + bodyHeight / 2);
+    game.ctx.stroke();
+    
+    // Right arm
+    game.ctx.beginPath();
+    game.ctx.moveTo(x + 8 * scale, baseY + headRadius * 2 + 5 * scale);
+    game.ctx.lineTo(x + 15 * scale - armSwing * 15, baseY + headRadius * 2 + bodyHeight / 2);
+    game.ctx.stroke();
+    
+    // Draw head
+    game.ctx.fillStyle = '#FDB99B';
+    game.ctx.beginPath();
+    game.ctx.arc(x, baseY + headRadius, headRadius, 0, Math.PI * 2);
+    game.ctx.fill();
+    
+    // Draw hair
+    game.ctx.fillStyle = '#3C2A1E';
+    game.ctx.beginPath();
+    game.ctx.arc(x, baseY + headRadius - 2 * scale, headRadius * 0.9, Math.PI, Math.PI * 2);
+    game.ctx.fill();
+    
+    // Draw eyes
+    game.ctx.fillStyle = '#000';
+    game.ctx.beginPath();
+    game.ctx.arc(x - 3 * scale, baseY + headRadius, 1.5 * scale, 0, Math.PI * 2);
+    game.ctx.fill();
+    
+    game.ctx.beginPath();
+    game.ctx.arc(x + 3 * scale, baseY + headRadius, 1.5 * scale, 0, Math.PI * 2);
+    game.ctx.fill();
+    
+    // Draw backpack
+    game.ctx.fillStyle = '#FF6B6B';
+    game.ctx.fillRect(x - 10 * scale, baseY + headRadius * 2 + 3 * scale, 20 * scale, 15 * scale);
+    
+    // Backpack straps
+    game.ctx.strokeStyle = '#CC5555';
+    game.ctx.lineWidth = 2 * scale;
+    game.ctx.beginPath();
+    game.ctx.moveTo(x - 5 * scale, baseY + headRadius * 2);
+    game.ctx.lineTo(x - 5 * scale, baseY + headRadius * 2 + 10 * scale);
+    game.ctx.stroke();
+    
+    game.ctx.beginPath();
+    game.ctx.moveTo(x + 5 * scale, baseY + headRadius * 2);
+    game.ctx.lineTo(x + 5 * scale, baseY + headRadius * 2 + 10 * scale);
+    game.ctx.stroke();
+}
+
+// Helper function for linear interpolation
+function lerp(a, b, t) {
+    return a + (b - a) * t;
 }
 
 function shareGame() {
