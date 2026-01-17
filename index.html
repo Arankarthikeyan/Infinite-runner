@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Infinite Runner - A mobile-friendly endless runner game">
+    <meta name="theme-color" content="#1a1a1a">
+    <title>Infinite Runner</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Infinite Runner</h1>
+            <div class="controls-info">
+                <span id="shareBtn" class="share-btn" title="Share this game">📤 Share</span>
+            </div>
+        </div>
+
+        <div class="game-wrapper">
+            <canvas id="gameCanvas"></canvas>
+
+            <!-- Start Screen -->
+            <div id="startScreen" class="screen start-screen">
+                <div class="screen-content">
+                    <h2>Infinite Runner</h2>
+                    <p>Tap anywhere to jump</p>
+                    <p style="font-size: 0.9em; opacity: 0.8;">Double-tap for a second jump</p>
+                    <button id="startBtn" class="btn">Tap to Start</button>
+                </div>
+            </div>
+
+            <!-- Game Over Screen -->
+            <div id="gameOverScreen" class="screen game-over-screen" style="display: none;">
+                <div class="screen-content">
+                    <h2>Game Over!</h2>
+                    <div class="score-display">
+                        <div class="score-item">
+                            <span class="label">Score</span>
+                            <span id="finalScore" class="value">0</span>
+                        </div>
+                        <div class="score-item">
+                            <span class="label">Best</span>
+                            <span id="bestScore" class="value">0</span>
+                        </div>
+                    </div>
+                    <button id="restartBtn" class="btn">Tap to Restart</button>
+                </div>
+            </div>
+
+            <!-- Game UI (Score display during gameplay) -->
+            <div id="gameUI" class="game-ui" style="display: none;">
+                <div class="score-box">
+                    <div class="score-item">
+                        <span class="label">Score</span>
+                        <span id="currentScore" class="value">0</span>
+                    </div>
+                    <div class="score-item">
+                        <span class="label">Best</span>
+                        <span id="displayBestScore" class="value">0</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <footer class="footer">
+            <p>Made with ❤️ • Mobile Friendly • No Dependencies</p>
+        </footer>
+    </div>
+
+    <script src="game.js"></script>
+</body>
+</html>
