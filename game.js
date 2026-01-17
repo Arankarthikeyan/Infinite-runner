@@ -6,9 +6,9 @@ const GAME_STATES = {
 };
 
 const NUM_LANES = 3;
-const INITIAL_SCROLL_SPEED = 4; // Reduced from 8 to 4 for smoother gameplay
-const MIN_SPAWN_INTERVAL = 1.2; // Increased from 0.8 to give more time
-const MAX_SPAWN_INTERVAL = 2.5; // Increased from 1.8 for easier start
+const INITIAL_SCROLL_SPEED = 2.5; // Further reduced from 4 to 2.5 for much smoother gameplay
+const MIN_SPAWN_INTERVAL = 1.5; // Increased from 1.2 to give even more time
+const MAX_SPAWN_INTERVAL = 3.0; // Increased from 2.5 for easier start
 
 // 3D Perspective constants
 const HORIZON_Y = 0.25; // Horizon at 25% from top
@@ -226,8 +226,8 @@ function handleTouchEnd(e) {
                 // Swipe left
                 moveLane(-1);
             }
-        } else if (Math.abs(deltaX) < game.swipeThreshold) {
-            // Tap - treat as lane change based on screen position
+        } else if (Math.abs(deltaX) < game.swipeThreshold && Math.abs(deltaY) < game.swipeThreshold) {
+            // Only tap if not swiping - treat as lane change based on screen position
             const tapX = touchEndX;
             const screenThird = game.canvas.width / 3;
             
@@ -236,6 +236,7 @@ function handleTouchEnd(e) {
             } else if (tapX > screenThird * 2) {
                 moveLane(1);
             }
+            // Middle third does nothing - prevents accidental moves
         }
     }
 }
@@ -430,7 +431,7 @@ function spawnObstacle() {
 }
 
 function updateObstacles(deltaTime) {
-    const speed = game.scrollSpeed * 0.01;
+    const speed = game.scrollSpeed * 0.008; // Reduced from 0.01 to 0.008 for slower obstacles
     
     for (let i = game.obstacles.length - 1; i >= 0; i--) {
         game.obstacles[i].z += speed;
